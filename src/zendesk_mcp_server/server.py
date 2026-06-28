@@ -36,6 +36,12 @@ zendesk_client = ZendeskClient(
 # Monkey-patch MCP SDK's _receive_loop to handle unrecognised notifications/requests
 # (e.g. notifications/cancelled) that would otherwise crash the server.
 #
+# To remove: once the MCP SDK (v1.1.2+) adds proper error handling around
+# model_validate() in BaseSession._receive_loop, delete the _patched_receive_loop
+# function below and the BaseSession._receive_loop = _patched_receive_loop line
+# at the end. Keep _original_receive_loop if you want to fall back, or delete
+# it too.
+#
 _original_receive_loop = BaseSession._receive_loop
 
 
@@ -97,6 +103,9 @@ async def _patched_receive_loop(self):
         logger.exception("Fatal error in _receive_loop, exiting receive loop")
 
 
+# Swap in our patched version. Delete this line (and the function above) once the
+# SDK adds its own error handling around model_validate() — check the CHANGELOG
+# for "notifications/cancelled" or "ValidationError" fixes in _receive_loop.
 BaseSession._receive_loop = _patched_receive_loop
 
 server = Server("Zendesk Server")
