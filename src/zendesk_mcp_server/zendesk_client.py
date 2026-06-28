@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 import json
+import threading
 import urllib.request
 import urllib.parse
 import base64
@@ -21,6 +22,8 @@ class ZendeskClient:
             token=token
         )
 
+        self._lock = threading.Lock()
+
         # For direct API calls
         self.subdomain = subdomain
         self.email = email
@@ -36,7 +39,8 @@ class ZendeskClient:
         Query a ticket by its ID
         """
         try:
-            ticket = self.client.tickets(id=ticket_id)
+            with self._lock:
+                ticket = self.client.tickets(id=ticket_id)
             return {
                 'id': ticket.id,
                 'subject': ticket.subject,
@@ -57,7 +61,8 @@ class ZendeskClient:
         Get all comments for a specific ticket, including attachment metadata.
         """
         try:
-            comments = self.client.tickets.comments(ticket=ticket_id)
+            with self._lock:
+                comments = self.client.tickets.comments(ticket=ticket_id)
             result = []
             for comment in comments:
                 attachments = []
@@ -163,12 +168,13 @@ class ZendeskClient:
         Post a comment to an existing ticket.
         """
         try:
-            ticket = self.client.tickets(id=ticket_id)
-            ticket.comment = Comment(
-                html_body=comment,
-                public=public
-            )
-            self.client.tickets.update(ticket)
+            with self._lock:
+                ticket = self.client.tickets(id=ticket_id)
+                ticket.comment = Comment(
+                    html_body=comment,
+                    public=public
+                )
+                self.client.tickets.update(ticket)
             return comment
         except Exception as e:
             raise Exception(f"Failed to post comment on ticket {ticket_id}: {str(e)}")
@@ -249,24 +255,24 @@ class ZendeskClient:
         Returns a Dict of section -> [article].
         """
         try:
-            # Get all sections
-            sections = self.client.help_center.sections()
+            with self._lock:
+                sections = self.client.help_center.sections()
 
-            # Get articles for each section
-            kb = {}
-            for section in sections:
-                articles = self.client.help_center.sections.articles(section.id)
-                kb[section.name] = {
-                    'section_id': section.id,
-                    'description': section.description,
-                    'articles': [{
-                        'id': article.id,
-                        'title': article.title,
-                        'body': article.body,
-                        'updated_at': str(article.updated_at),
-                        'url': article.html_url
-                    } for article in articles]
-                }
+                # Get articles for each section
+                kb = {}
+                for section in sections:
+                    articles = self.client.help_center.sections.articles(section.id)
+                    kb[section.name] = {
+                        'section_id': section.id,
+                        'description': section.description,
+                        'articles': [{
+                            'id': article.id,
+                            'title': article.title,
+                            'body': article.body,
+                            'updated_at': str(article.updated_at),
+                            'url': article.html_url
+                        } for article in articles]
+                    }
 
             return kb
         except Exception as e:
@@ -297,25 +303,26 @@ class ZendeskClient:
             custom_fields: Optional list of dicts: {id: int, value: Any}
         """
         try:
-            ticket = ZenpyTicket(
-                subject=subject,
-                description=description,
-                requester_id=requester_id,
-                assignee_id=assignee_id,
-                priority=priority,
-                type=type,
-                tags=tags,
-                custom_fields=custom_fields,
-            )
-            created_audit = self.client.tickets.create(ticket)
-            # Fetch created ticket id from audit
-            created_ticket_id = getattr(getattr(created_audit, 'ticket', None), 'id', None)
-            if created_ticket_id is None:
-                # Fallback: try to read id from audit events
-                created_ticket_id = getattr(created_audit, 'id', None)
+            with self._lock:
+                ticket = ZenpyTicket(
+                    subject=subject,
+                    description=description,
+                    requester_id=requester_id,
+                    assignee_id=assignee_id,
+                    priority=priority,
+                    type=type,
+                    tags=tags,
+                    custom_fields=custom_fields,
+                )
+                created_audit = self.client.tickets.create(ticket)
+                # Fetch created ticket id from audit
+                created_ticket_id = getattr(getattr(created_audit, 'ticket', None), 'id', None)
+                if created_ticket_id is None:
+                    # Fallback: try to read id from audit events
+                    created_ticket_id = getattr(created_audit, 'id', None)
 
-            # Fetch full ticket to return consistent data
-            created = self.client.tickets(id=created_ticket_id) if created_ticket_id else None
+                # Fetch full ticket to return consistent data
+                created = self.client.tickets(id=created_ticket_id) if created_ticket_id else None
 
             return {
                 'id': getattr(created, 'id', created_ticket_id),
@@ -343,18 +350,18 @@ class ZendeskClient:
         tags (list[str]), custom_fields (list[dict]), due_at, etc.
         """
         try:
-            # Load the ticket, mutate fields directly, and update
-            ticket = self.client.tickets(id=ticket_id)
-            for key, value in fields.items():
-                if value is None:
-                    continue
-                setattr(ticket, key, value)
+            with self._lock:
+                ticket = self.client.tickets(id=ticket_id)
+                for key, value in fields.items():
+                    if value is None:
+                        continue
+                    setattr(ticket, key, value)
 
-            # This call returns a TicketAudit (not a Ticket). Don't read attrs from it.
-            self.client.tickets.update(ticket)
+                # This call returns a TicketAudit (not a Ticket). Don't read attrs from it.
+                self.client.tickets.update(ticket)
 
-            # Fetch the fresh ticket to return consistent data
-            refreshed = self.client.tickets(id=ticket_id)
+                # Fetch the fresh ticket to return consistent data
+                refreshed = self.client.tickets(id=ticket_id)
 
             return {
                 'id': refreshed.id,
