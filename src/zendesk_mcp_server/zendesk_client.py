@@ -34,6 +34,16 @@ class ZendeskClient:
         encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
         self.auth_header = f"Basic {encoded_credentials}"
 
+    @staticmethod
+    def _serialize_custom_fields(custom_fields: Any) -> List[Dict[str, Any]]:
+        if not custom_fields:
+            return []
+        return [
+            {'id': getattr(cf, 'id', cf.get('id')), 'value': getattr(cf, 'value', cf.get('value'))}
+            if isinstance(cf, dict) else {'id': cf.id, 'value': cf.value}
+            for cf in custom_fields
+        ]
+
     def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         """
         Query a ticket by its ID
@@ -51,7 +61,10 @@ class ZendeskClient:
                 'updated_at': str(ticket.updated_at),
                 'requester_id': ticket.requester_id,
                 'assignee_id': ticket.assignee_id,
-                'organization_id': ticket.organization_id
+                'organization_id': ticket.organization_id,
+                'custom_fields': self._serialize_custom_fields(
+                    getattr(ticket, 'custom_fields', []) or []
+                ),
             }
         except Exception as e:
             raise Exception(f"Failed to get ticket {ticket_id}: {str(e)}")
@@ -229,7 +242,8 @@ class ZendeskClient:
                     'created_at': ticket.get('created_at'),
                     'updated_at': ticket.get('updated_at'),
                     'requester_id': ticket.get('requester_id'),
-                    'assignee_id': ticket.get('assignee_id')
+                    'assignee_id': ticket.get('assignee_id'),
+                    'custom_fields': ticket.get('custom_fields', []),
                 })
 
             return {
@@ -248,6 +262,56 @@ class ZendeskClient:
             raise Exception(f"Failed to get latest tickets: HTTP {e.code} - {e.reason}. {error_body}")
         except Exception as e:
             raise Exception(f"Failed to get latest tickets: {str(e)}")
+
+    def get_ticket_fields(self) -> List[Dict[str, Any]]:
+        """
+        Fetch all ticket fields (system + custom) using direct API.
+
+        Returns each field's id, title, type, description, required status,
+        active status, and (for dropdowns) the available custom_field_options.
+        """
+        try:
+            url = f"{self.base_url}/ticket_fields.json"
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            fields = data.get('ticket_fields', [])
+            result = []
+            for field in fields:
+                entry = {
+                    'id': field.get('id'),
+                    'title': field.get('title'),
+                    'type': field.get('type'),
+                    'description': field.get('description', ''),
+                    'active': field.get('active', False),
+                    'required': field.get('required', False),
+                    'position': field.get('position'),
+                    'visible_in_portal': field.get('visible_in_portal', False),
+                    'agent_can_edit': field.get('agent_can_edit', True),
+                }
+                # Include dropdown options if present (custom_field_options)
+                options = field.get('custom_field_options')
+                if options:
+                    entry['options'] = [
+                        {
+                            'id': o.get('id'),
+                            'name': o.get('name'),
+                            'value': o.get('value'),
+                            'position': o.get('position', 0),
+                        }
+                        for o in options
+                    ]
+                result.append(entry)
+            return result
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get ticket fields: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get ticket fields: {str(e)}")
 
     def get_all_articles(self) -> Dict[str, Any]:
         """
@@ -337,6 +401,9 @@ class ZendeskClient:
                 'assignee_id': getattr(created, 'assignee_id', assignee_id),
                 'organization_id': getattr(created, 'organization_id', None),
                 'tags': list(getattr(created, 'tags', tags or []) or []),
+                'custom_fields': self._serialize_custom_fields(
+                    getattr(created, 'custom_fields', []) or []
+                ),
             }
         except Exception as e:
             raise Exception(f"Failed to create ticket: {str(e)}")
@@ -376,6 +443,9 @@ class ZendeskClient:
                 'assignee_id': refreshed.assignee_id,
                 'organization_id': refreshed.organization_id,
                 'tags': list(getattr(refreshed, 'tags', []) or []),
+                'custom_fields': self._serialize_custom_fields(
+                    getattr(refreshed, 'custom_fields', []) or []
+                ),
             }
         except Exception as e:
             raise Exception(f"Failed to update ticket {ticket_id}: {str(e)}")

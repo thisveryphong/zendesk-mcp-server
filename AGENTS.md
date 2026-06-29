@@ -21,10 +21,10 @@ No test runner, linter, formatter, or type checker is configured. CI only runs `
 ## Architecture
 
 - **Single package** at `src/zendesk_mcp_server/` (3 files: `__init__.py`, `server.py`, `zendesk_client.py`)
-- **Entrypoint**: console script `zendesk` → `zendesk_mcp_server:main` (`pyproject.toml:18`)
+- **Entrypoint**: console script `zendesk` → `zendesk_mcp_server:main`
 - **Framework**: MCP Python SDK 1.1.2 (`stdio_server()` transport)
 - **Zendesk lib**: `zenpy` 2.0.56 for most API calls; direct `urllib`/`requests` for `get_tickets` (zenpy lacks offset pagination) and `get_ticket_attachment`
-- **Tools (7)**: get_ticket, get_tickets, get_ticket_comments, get_ticket_attachment, create_ticket, create_ticket_comment, update_ticket
+- **Tools (8)**: get_ticket, get_tickets, get_ticket_comments, get_ticket_attachment, get_ticket_fields, create_ticket, create_ticket_comment, update_ticket
 - **Prompts (2)**: analyze-ticket, draft-ticket-response
 - **Resources (1)**: `zendesk://knowledge-base` (Help Center articles, 1hr TTL cache)
 
@@ -36,5 +36,5 @@ No test runner, linter, formatter, or type checker is configured. CI only runs `
 - Attachment fetch validates MIME type against an allowlist + magic bytes + 10 MB cap. SVG is explicitly excluded.
 - Server patches MCP SDK's `_receive_loop` to suppress `ValidationError` from `notifications/cancelled` messages (a crash fix).
 - Knowledge base data is cached at module level with `@ttl_cache(ttl=3600)`. No manual invalidation.
-- Environment: Python ≥3.12, `.env` loaded via `python-dotenv` at import time (`server.py:24`).
+- Environment: Python ≥3.12, `.env` loaded via `python-dotenv` at import time.
 - `.gitignore` excludes `AGENT.md` (singular) — `AGENTS.md` (plural) is not git-ignored.

@@ -320,6 +320,15 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="get_ticket_fields",
+            description="Fetch all ticket fields (system + custom) including their id, title, type, and dropdown options",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        types.Tool(
             name="update_ticket",
             description="Update fields on an existing Zendesk ticket (e.g., status, priority, assignee_id)",
             inputSchema={
@@ -433,6 +442,13 @@ async def handle_call_tool(
                     type="text",
                     text=json.dumps({"content_type": content_type, "data_base64": result["data"]})
                 )]
+
+        elif name == "get_ticket_fields":
+            fields = zendesk_client.get_ticket_fields()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(fields, indent=2)
+            )]
 
         elif name == "update_ticket":
             if not arguments:
